@@ -111,13 +111,13 @@ def calculate_efficiency(tasks):
 
     emoji = ""
     if efficiency == 0:
-        emoji = "\033[97m⚪ Nothing yet... today is a blank canvas\033[0m"
+        emoji = "\033[97m⚪ Nothing yet\033[0m"
     elif efficiency < 50:
-        emoji = "\033[91m🟥 Way below target... time to get moving!\033[0m"
+        emoji = "\033[91m🟥 Way below target...\033[0m"
     elif 50 <= efficiency <= 80:
-        emoji = "\033[93m🟧 We are halfway there! keep going!\033[0m"
+        emoji = "\033[93m🟧 Halfway accomplished!\033[0m"
     elif 81 <= efficiency <= 95:
-        emoji = "\033[92m🟩 Great job! Just a little more... \033[0m"
+        emoji = "\033[92m🟩 Great job!  \033[0m"
     elif 96 <= efficiency <= 100:
         emoji = "\033[96m🌟 Mission accomplished! All goals complete 🌟\033[0m"
     

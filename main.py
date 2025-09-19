@@ -29,19 +29,25 @@ def main_menu():
         print("\n🌟 \033[93m Welcome to Navigoals! \033[0m🌟")
         print()
 
-        # Fetch today's and yesterday's tasks
-        for offset, label in [(1, "Yesterday"), (0, "Today")]:
-            day = datetime.date.today() - datetime.timedelta(days=offset)
+        for delta, label in [(-1, "Yesterday"), (0, "Today"), (1, "Tomorrow")]:
+            day = datetime.date.today() + datetime.timedelta(days=delta)
             day_str = day.isoformat()
             print(f"\033[91m{label}\033[0m {day_str}")
 
             tasks = get_tasks_by_date(day_str)
 
             if tasks:
-                metrics = calculate_efficiency(tasks)
-                print(f"\033[91m{label}'s Efficiency:\033[0m {metrics['efficiency']:.2f}% {metrics['emoji']}")
+                # Only show efficiency for past/present days
+                if delta <= 0:
+                    metrics = calculate_efficiency(tasks)
+                    print(f"\033[91m{label}'s Efficiency:\033[0m {metrics['efficiency']:.2f}% {metrics['emoji']}")
+                else:
+                    # Optional: show a planning summary for future days
+                    planned = len(tasks)
+                    print(f"\033[91mPlanned:\033[0m {planned} task(s)")
+
                 headers = ["\033[94mDaily ID", "Name", "Category", "Status\033[0m"]
-                formatted_tasks = [(task[0], task[1], task[2], task[3]) for task in tasks]
+                formatted_tasks = [(t[0], t[1], t[2], t[3]) for t in tasks]
                 print(tabulate(formatted_tasks, headers=headers, tablefmt="pretty"))
             else:
                 print(f"No goals for {label.lower()} \U0001F4E5\n")
@@ -352,32 +358,43 @@ def watch_list_menu():
                 print("No tasks in the Waiting List.")
 
         elif choice == "4":
-            print("\n📋 Copying Task(s) from a List...")
-            print("1. Copy from Master List")
-            print("2. Copy from Waiting List")
-            list_choice = input("Select the list to copy from: ").strip()
+            print("\n📋 Copy/Move Task(s)...")
+            print("Source list:")
+            print("1. Master List")
+            print("2. Waiting List")
+            source_choice = input("Select the source list: ").strip()
 
-            if list_choice == "1":
+            if source_choice == "1":
+                source_label = "Master"
+                source_table = "master_list"
                 tasks = get_master_list()
-            elif list_choice == "2":
+            elif source_choice == "2":
+                source_label = "Waiting"
+                source_table = "waiting_list"
                 tasks = get_waiting_list()
             else:
-                print("❌ Invalid list selection.")
+                print("❌ Invalid source selection.")
                 continue
 
             if not tasks:
-                print("No tasks available in the selected list.")
+                print(f"No tasks available in the {source_label} List.")
                 continue
 
-            print("Select tasks to copy by entering their IDs (comma-separated). Use '*' to select all.")
+            # Show tasks
+            print(f"\n{source_label} tasks:")
+            headers = ["ID", "Name", "Category"]
+            print(tabulate(tasks, headers=headers, tablefmt="pretty"))
+
+            print("\nSelect tasks to copy by entering their IDs (comma-separated). Use '*' to select all.")
             task_selection = input("Enter the task ID(s) or '*': ").strip()
 
             if task_selection == "*":
                 selected_tasks = tasks
+                selected_ids = [t[0] for t in tasks]
             else:
                 try:
                     selected_ids = [int(x) for x in task_selection.split(",") if x.strip().isdigit()]
-                    selected_tasks = [task for task in tasks if task[0] in selected_ids]
+                    selected_tasks = [t for t in tasks if t[0] in selected_ids]
                 except ValueError:
                     print("❌ Invalid input. Please try again.")
                     continue
@@ -386,13 +403,45 @@ def watch_list_menu():
                 print("❌ No valid tasks selected.")
                 continue
 
-            new_time = select_time()
-            if new_time:
+            print("\nDestination:")
+            print("1. A specific day (daily list)")
+            print("2. Master List")
+            print("3. Waiting List")
+            dest_choice = input("Select the destination: ").strip()
+
+            if dest_choice == "1":
+                # Copy to daily list (dated)
+                new_time = select_time()
+                if new_time:
+                    for task in selected_tasks:
+                        # add_task(name, category, time) -> daily por defecto
+                        add_task(task[1], task[2], new_time)
+                        print(f"✅ '{task[1]}' copied to daily list at {new_time}.")
+                else:
+                    print("❌ Copy canceled due to invalid time selection.")
+
+            elif dest_choice in ("2", "3"):
+                dest_label = "Master" if dest_choice == "2" else "Waiting"
+                dest_table = "master_list" if dest_choice == "2" else "waiting_list"
+
+                # Copy to Master/Waiting usando add_task con list_type
                 for task in selected_tasks:
-                    add_task(task[1], task[2], new_time)  # Adds the copied task with the new time
-                    print(f"✅ Task '{task[1]}' copied successfully to {new_time}.")
+                    if dest_choice == "2":
+                        add_task(task[1], task[2], list_type="master")
+                    else:
+                        add_task(task[1], task[2], list_type="waiting")
+                    print(f"✅ '{task[1]}' copied to {dest_label} List.")
+
+                # Ofrecer "move" SOLO si se cruza de una lista a la otra
+                if dest_table != source_table:
+                    move_flag = input("Move instead of copy? (y/N): ").strip().lower() == "y"
+                    if move_flag:
+                        for tid in selected_ids:
+                            delete_task(tid, table=source_table)
+                        print(f"🗑️ Original(s) removed from {source_label} List.")
+
             else:
-                print("❌ Copy canceled due to invalid time selection.")
+                print("❌ Invalid destination selection.")
 
         elif choice == "5":
             return
