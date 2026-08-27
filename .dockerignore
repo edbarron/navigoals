@@ -1,0 +1,43 @@
+# VCS
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+*.so
+
+# Entorno / secretos
+.env
+*.env
+
+# Tests / tooling
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.cache/
+
+# Build artefacts
+build/
+dist/
+*.egg-info/
+
+# OS / editores
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+.ipynb_checkpoints/
+
+# Datos del proyecto (no meterlos en la imagen)
+navigoals.db
+data/
+logs/
+
+# Docker (si usas overrides locales)
+docker-compose.override.yml

@@ -1,0 +1,32 @@
+services:
+  navigoals-bot:
+    build: .
+    container_name: navigoals-bot-container
+    volumes:
+      - ./navigoals.db:/app/navigoals.db
+    command: sh -c "python initialize_db.py && python bot.py"
+
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+
+    restart: unless-stopped
+
+  # Old CLI service, kept for local/manual use if you ever want it.
+  # Run with: docker compose run --rm navigoals-cli
+  navigoals-cli:
+    build: .
+    container_name: navigoals-cli-container
+    volumes:
+      - ./navigoals.db:/app/navigoals.db
+    command: python main.py
+    stdin_open: true
+    tty: true
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - TERM=xterm-256color
+    profiles:
+      - cli

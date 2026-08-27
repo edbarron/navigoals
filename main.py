@@ -3,7 +3,8 @@ from utils import (
     select_task_type, 
     select_time, 
     calculate_efficiency, 
-    format_report
+    format_report,
+    status_label,
 )  # Utility functions
 
 from db_utils import (
@@ -11,6 +12,7 @@ from db_utils import (
     get_tasks_by_date, 
     update_task_status, 
     delete_task, 
+    delete_daily_task,
     get_master_list, 
     get_waiting_list, 
     get_tasks_by_range,
@@ -47,7 +49,7 @@ def main_menu():
                     print(f"\033[91mPlanned:\033[0m {planned} task(s)")
 
                 headers = ["\033[94mDaily ID", "Name", "Category", "Status\033[0m"]
-                formatted_tasks = [(t[0], t[1], t[2], t[3]) for t in tasks]
+                formatted_tasks = [(t[0], t[1], t[2], status_label(t[3])) for t in tasks]
                 print(tabulate(formatted_tasks, headers=headers, tablefmt="pretty"))
             else:
                 print(f"No goals for {label.lower()} \U0001F4E5\n")
@@ -185,7 +187,7 @@ def update_task_menu():
     print("3) Moved 📦")
     print("4) Cancelled 🚫")
     
-    new_status_options = {"1": "Done ✅", "2": "Failed ❌", "3": "Moved 📦", "4": "Cancelled 🚫"}
+    new_status_options = {"1": "done", "2": "failed", "3": "moved", "4": "cancelled"}
     new_status_choice = input("Enter the number of the new status: ").strip()
 
     new_status = new_status_options.get(new_status_choice)
@@ -193,7 +195,7 @@ def update_task_menu():
         for task in tasks_to_update:
             daily_id = task[0]  # Extract Daily ID
             update_task_status(daily_id, new_status, date_str)  # Pass daily_id and date
-            print(f"✅ Task '{task[1]}' updated successfully to '{new_status}'.")
+            print(f"✅ Task '{task[1]}' updated successfully to '{status_label(new_status)}'.")
     else:
         print("❌ Update canceled due to invalid input.")
 
@@ -213,19 +215,32 @@ def delete_task_menu():
             print("No tasks available to delete.")
             return
 
-        tasks_to_delete = select_task(tasks, multi_select=True)  # Allow multiple selections
+        tasks_to_delete = select_task(tasks, multi_select=True)
         if not tasks_to_delete:
             print("Delete canceled.")
             return
 
-        for task in tasks_to_delete:
-            daily_id = task[0]  # Extract Daily ID from task tuple
+        ask_bulk = False
+
+        for i, task in enumerate(tasks_to_delete):
+            daily_id = task[0]
+
+            if ask_bulk:
+                delete_daily_task(daily_id, date_str)
+                print(f"✅ Task '{task[1]}' deleted successfully.")
+                continue
+
             confirm = input(f"Are you sure you want to delete the task '{task[1]}'? (y/n): ").strip().lower()
             if confirm == 'y':
-                delete_task(daily_id, table="tasks")  # Call the delete function
+                delete_daily_task(daily_id, date_str)
                 print(f"✅ Task '{task[1]}' deleted successfully.")
             else:
                 print(f"❌ Task '{task[1]}' delete canceled.")
+
+            if i == 2 and len(tasks_to_delete) > 3:
+                bulk_confirm = input("Do you want to delete the rest of the requested items at once? (y/n): ").strip().lower()
+                if bulk_confirm == 'y':
+                    ask_bulk = True
 
     elif choice == "2":
         print("\n\U0001F4DA Deleting from Master List...")
@@ -234,19 +249,32 @@ def delete_task_menu():
             print("No tasks available in the Master List.")
             return
 
-        tasks_to_delete = select_task(master_tasks, multi_select=True)  # Allow multiple selections
+        tasks_to_delete = select_task(master_tasks, multi_select=True)
         if not tasks_to_delete:
             print("Delete canceled.")
             return
 
-        for task in tasks_to_delete:
-            task_id = task[0]  # Extract task ID from tuple
+        ask_bulk = False
+
+        for i, task in enumerate(tasks_to_delete):
+            task_id = task[0]
+
+            if ask_bulk:
+                delete_task(task_id, table="master_list")
+                print(f"✅ Task '{task[1]}' deleted successfully from Master List.")
+                continue
+
             confirm = input(f"Are you sure you want to delete the task '{task[1]}'? (y/n): ").strip().lower()
             if confirm == 'y':
-                delete_task(task_id, table="master_list")  # Call the delete function
+                delete_task(task_id, table="master_list")
                 print(f"✅ Task '{task[1]}' deleted successfully from Master List.")
             else:
                 print(f"❌ Task '{task[1]}' delete canceled.")
+
+            if i == 2 and len(tasks_to_delete) > 3:
+                bulk_confirm = input("Do you want to delete the rest of the requested items at once? (y/n): ").strip().lower()
+                if bulk_confirm == 'y':
+                    ask_bulk = True
 
     elif choice == "3":
         print("\n⏳ Deleting from Waiting List...")
@@ -255,26 +283,36 @@ def delete_task_menu():
             print("No tasks available in the Waiting List.")
             return
 
-        tasks_to_delete = select_task(waiting_tasks, multi_select=True)  # Allow multiple selections
+        tasks_to_delete = select_task(waiting_tasks, multi_select=True)
         if not tasks_to_delete:
             print("Delete canceled.")
             return
 
-        for task in tasks_to_delete:
-            task_id = task[0]  # Extract task ID from tuple
+        ask_bulk = False
+
+        for i, task in enumerate(tasks_to_delete):
+            task_id = task[0]
+
+            if ask_bulk:
+                delete_task(task_id, table="waiting_list")
+                print(f"✅ Task '{task[1]}' deleted successfully from Waiting List.")
+                continue
+
             confirm = input(f"Are you sure you want to delete the task '{task[1]}'? (y/n): ").strip().lower()
             if confirm == 'y':
-                delete_task(task_id, table="waiting_list")  # Call the delete function
+                delete_task(task_id, table="waiting_list")
                 print(f"✅ Task '{task[1]}' deleted successfully from Waiting List.")
             else:
                 print(f"❌ Task '{task[1]}' delete canceled.")
 
-    elif choice == "4":
-        return
+            if i == 2 and len(tasks_to_delete) > 3:
+                bulk_confirm = input("Do you want to delete the rest of the requested items at once? (y/n): ").strip().lower()
+                if bulk_confirm == 'y':
+                    ask_bulk = True
 
     else:
         print("❌ Invalid option. Please try again.")
-
+                
 def copy_task_menu():
     """Copy one or multiple existing tasks."""
     print("\n\U0001F4CB Copying tasks...")
@@ -335,7 +373,7 @@ def watch_list_menu():
             if tasks:
                 print("\nTasks for the day:")
                 headers = ["Daily ID", "Name", "Category", "Status"]
-                formatted_tasks = [(task[0], task[1], task[2], task[3]) for task in tasks]
+                formatted_tasks = [(task[0], task[1], task[2], status_label(task[3])) for task in tasks]
                 print(tabulate(formatted_tasks, headers=headers, tablefmt="pretty"))
             else:
                 print("No tasks found for this day.")

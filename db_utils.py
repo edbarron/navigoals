@@ -66,10 +66,23 @@ def update_task_status(daily_id, status, date, db_name=DB_PATH):
     except sqlite3.Error as e:
         print(f"Error updating task: {e}")
 
+VALID_TABLES = {"tasks", "master_list", "waiting_list"}
+
 def delete_task(task_id, table="tasks", db_name=DB_PATH):
-    """Delete a task from the specified table."""
+    """Delete a task from master_list or waiting_list by its id.
+    For daily tasks, use delete_daily_task instead — 'tasks' rows are looked
+    up by (daily_id, date), not by a global id, since daily_id resets each day.
+    """
+    if table not in VALID_TABLES:
+        print(f"An error occurred: invalid table '{table}'")
+        return None
     query = f"DELETE FROM {table} WHERE id = ?"
-    execute_query(query, (task_id,), db_name)
+    return execute_query(query, (task_id,), db_name)
+
+def delete_daily_task(daily_id, date, db_name=DB_PATH):
+    """Delete a task from the daily tasks table by its resettable daily_id + date."""
+    query = "DELETE FROM tasks WHERE daily_id = ? AND date = ?"
+    return execute_query(query, (daily_id, date), db_name)
 
 def get_master_list(db_name=DB_PATH):
     """Retrieve all tasks from the Master List."""

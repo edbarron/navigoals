@@ -1,140 +1,181 @@
-# Navigoals - Personal Goal Tracker
+# 🧭 Navigoals – Personal Goal Tracker (CLI + Telegram Bot)
 
-#### Video Demo: [https://youtu.be/R9B_jZDJZSA?si=BkNWonmVRejDr1Fr](https://youtu.be/R9B_jZDJZSA?si=BkNWonmVRejDr1Fr)
-
-## Description:
-
-Navigoals is a command-line productivity tool that helps users efficiently plan, manage, and track their tasks on a daily, weekly, and monthly basis. Built with Python and SQLite, Navigoals provides structured task visualization, completion tracking, and efficiency reporting.
-
-The program is designed to be lightweight yet powerful, incorporating performance tracking and efficiency metrics to help users stay on top of their goals.
-
-Navigoals is a to-do list that allows users to continuously track their tasks without losing sight of past accomplishments. By integrating task management with efficiency tracking, Navigoals gives users real-time feedback on their productivity.
-
-This tool is designed for busy professionals, students, and goal-oriented individuals who need a structured yet flexible system to keep up with their tasks. With dynamic reporting and an intuitive task management system, Navigoals ensures that every effort counts, helping users stay focused, efficient, and motivated.
-
-## Example Workflow:
-
-A user typically starts by installing Navigoals and setting up the database. Once installed, they begin adding tasks through the command-line interface, categorizing them by date and type (work, study, social, personal). Daily, weekly, and monthly reports help the user review their progress and adjust their schedule accordingly.
-
-For example, a student may enter tasks for different assignments and track their completion status, while a freelancer can schedule client projects and measure their efficiency over time. Also, the Master and Waiting Lists allow users to keep track of long-term or recurring tasks, ensuring that nothing is forgotten. By consistently using Navigoals, users integrate it into their routine and develop a more structured approach to managing their goals.
-
-## Features:
-
-- **Task Management**: Allows users to create, modify, delete, and duplicate tasks. This ensures efficient workload management by keeping the to-do list organized and up to date.
-    
-- **Reports & Analytics**: Helps users track their productivity by generating reports on a daily, weekly, and monthly basis. It provides insights into completed tasks, pending work, and overall efficiency.
-    
-- **Efficiency Tracking**: Automatically calculates how effectively a user completes their tasks. This helps users assess their performance and make adjustments to improve their workflow.
-    
-- **Master & Waiting Lists**: The Master List stores recurring tasks that users perform frequently, while the Waiting List holds tasks that do not have a specific deadline yet. This helps users organize their workload efficiently and ensures that no task is forgotten.
-    
-- **Dynamic Time Management**: Allows users to reschedule and move tasks to different dates based on priority or availability, making it easier to adapt to changing schedules.
-    
-- **Database-Driven Persistence**: Uses SQLite to store tasks permanently, preventing data loss and allowing users to track their progress over long periods.
-    
-
-## Files and Their Functions:
-
-### 1. `main.py` - Core program
-
-Handles user interactions, task management, and reports.
-
-### 2. `db_utils.py` - Database operations
-
-- Manages task storage and retrieval.
-    
-- Provides methods for adding, updating, and deleting tasks.
-    
-
-### 3. `utils.py` - Helper functions
-
-- Provides selection menus for task type and time management.
-    
-- Computes efficiency scores based on task completion.
-    
-
-### 4. `schema.sql` - Database schema
-
-Defines the structure for task management, including daily tasks, master lists, and waiting lists.
-
-### 5. `README.md` - Project documentation
-
-Provides instructions, descriptions, and future development plans.
-
-## Prerequisites:
-
-- **Python 3.x**: Required to run the script since Navigoals is built using Python.
-    
-- **SQLite**: A lightweight database system used for storing and managing task data efficiently.
-    
-- **Datetime**: A built-in Python library used for handling task deadlines, timestamps, and report generation.
-    
-- **Tabulate**: A library used to format data into readable tables in the command-line interface, improving report visualization.
-    
-
-## Installation:
-
-```
-git clone https://github.com/yourusername/navigoals.git
-cd navigoals
-```
-
-## Initialize database:
-
-```
-python initialize_db.py
-
-```
-
-## Running the Program:
-
-```
-python main.py
-
-```
-
-## Basic Usage:
-
-1. Manage Tasks → Add Task → Update Tasks ( Mark tasks as Done, Failed, Moved, or Cancelled) → Cancel task → Copy Task.
-    
-2. Generate Reports → View Reports → Choose Daily, Weekly, or Monthly Report.
-    
-3. Watch Lists: → View daily list → View Master & Waiting list → Copy task fast.
-    
-4. Exit → exits the program.
-    
-## In conclusion...
-
-Navigoals is a productivity tool designed to help users manage their daily, weekly, and monthly tasks efficiently. It tracks task completion, calculates efficiency scores, and provides detailed reports to help users improve their productivity over time.
-
-## FUTURE
--Make it able to copy from any list, not just today list
-
-## License
-
-MIT License
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+A productivity tool that helps you plan, manage, and track your tasks on a daily, weekly, and monthly basis.  
+It features a **command‑line interface (CLI)** and a **Telegram bot** with inline buttons, so you can manage your goals from anywhere.
 
 ---
 
-## Acknowledgments
+## ✨ Features
 
-Navigoals was developed as the final project for Harvard’s CS50 course, blending programming knowledge with practical problem-solving skills.
+- **Task Management** – Add, update (Done/Failed/Moved/Cancelled), delete, and copy tasks – including multi‑select via comma‑separated IDs or `*` for "all".
+- **Three Task Lists**:
+  - **Daily Tasks** – tasks assigned to specific dates.
+  - **Master List** – recurring tasks you perform frequently.
+  - **Waiting List** – tasks without a specific deadline yet.
+- **Efficiency Tracking** – Automatically calculates how effectively you complete tasks.
+- **Reports & Analytics** – Daily, weekly, and monthly reports with completion metrics.
+- **Telegram Bot Interface** – Full bot with inline buttons, accessible from your phone or desktop. Includes a main menu snapshot (yesterday/today/tomorrow, grouped by category) and a `/restart` command to recover the bot remotely.
+- **Docker Support** – Run the bot continuously with Docker Compose (auto‑restart).
+- **SQLite Persistence** – All tasks are stored locally; no data loss between sessions.
 
-Special thanks to Professor David Malan, Harvard University and the entire CS50 staff for sharing their invaluable knowledge.
+---
 
-If you have feedback, ideas, or simply want to connect, feel free to reach out:
-- **Name**: [Jesús Eduardo Barrón Aguilar]
-- **Email**: [xeduardo.barron@gmail.com]
-- **GitHub**: [https://github.com/Eduardbarron]
+## 🛠️ Tech Stack
 
-If you found this project useful and want to support future developments, please consider buying me coding fuel (aka coffee) at  
-[Buy Me a Coffee](https://www.buymeacoffee.com/Eduardbarron) (optional, but greatly appreciated!)
+- Python 3.10+
+- SQLite (local database)
+- `tabulate` (table formatting for CLI)
+- `python-telegram-bot` (Telegram bot interface)
+- Docker & Docker Compose (optional, for bot hosting)
 
-Thank you for exploring Navigoals. I hope it's useful to you.
+---
 
+## 📦 Installation
+
+### 1. Clone the repository
+```bash
+git clone https://github.com/edbarron/navigoals.git
+cd navigoals
+```
+
+### 2. Set up a virtual environment (optional but recommended)
+```bash
+python3 -m venv venv
+source venv/bin/activate   # On Windows: venv\Scripts\activate
+```
+
+### 3. Install dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Initialise the database
+```bash
+python initialize_db.py
+```
+
+---
+
+## 🖥️ Option A – Run the CLI locally
+
+```bash
+python main.py
+```
+
+The CLI offers:
+- **Manage Tasks** – Add, update, delete, copy.
+- **View Reports** – Daily, weekly, monthly efficiency reports.
+- **Watch Lists** – View Master List, Waiting List, or tasks by date.
+
+---
+
+## 🤖 Option B – Run the Telegram Bot
+
+The bot is **single‑user by design** – it only responds to one Telegram chat ID (set by you).  
+To share Navigoals with others, they should clone the repo and run their own instance.
+
+### 1. Create your bot
+- Message [@BotFather](https://t.me/BotFather) on Telegram.
+- Run `/newbot` and save the token.
+
+### 2. Get your chat ID
+- Message [@userinfobot](https://t.me/userinfobot) – it replies with your numeric ID instantly.
+
+### 3. Set up environment variables
+```bash
+cp .env.example .env
+```
+Edit `.env` and fill in:
+```env
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_numeric_chat_id
+```
+
+### 4. Run the bot (two options)
+
+**Locally (without Docker):**
+```bash
+python bot.py
+```
+
+**With Docker Compose (recommended for 24/7 operation):**
+```bash
+docker compose up -d --build navigoals-bot
+```
+
+The bot runs in **long‑polling mode** – no public domain, HTTPS, or open port required. It just needs outbound internet access.
+
+### 5. Start using the bot
+Open your bot on Telegram and send `/start`.  
+The bot provides inline buttons for all features. If it becomes unresponsive, send `/restart` to force a clean restart (Docker's `restart: unless-stopped` policy will bring it back up).
+
+---
+
+## 🧭 Telegram Bot Commands
+
+| Command | Description |
+| :--- | :--- |
+| `/start` | Show the main menu (snapshot of today/yesterday/tomorrow, grouped by category). |
+| `/restart` | Exit the bot cleanly – useful if it becomes unresponsive. |
+
+All other actions (Add/Update/Delete/Copy tasks, Reports, Watch Lists) are accessible via inline buttons.
+
+---
+
+## 📁 File Structure
+
+```
+navigoals/
+├── main.py                # CLI core program
+├── bot.py                 # Telegram bot interface
+├── db_utils.py            # Database operations (add, update, delete, fetch)
+├── utils.py               # Helper functions (time selection, efficiency, formatting)
+├── initialize_db.py       # Database initialisation (runs schema.sql)
+├── schema.sql             # Database schema (single source of truth)
+├── .env                   # Environment variables (not tracked – contains tokens)
+├── .env.example           # Example env file (copy to .env)
+├── docker-compose.yml     # Docker services (bot + optional CLI)
+├── Dockerfile             # Docker image definition
+├── .dockerignore          # Files to exclude from Docker image
+├── requirements.txt       # Python dependencies
+├── navigoals.db           # SQLite database (auto‑generated)
+└── README.md              # This file
+```
+
+---
+
+## 📊 How It Works
+
+1. **Daily Tasks** – Each task is assigned to a specific date. You can add, update, delete, or copy tasks between dates.
+2. **Master List** – Stores long‑term or recurring tasks. You can copy them to specific days when needed.
+3. **Waiting List** – Holds tasks that don't have a deadline yet. Copy them to a day when you're ready to work on them.
+4. **Efficiency Tracking** – For each day, the bot calculates what percentage of tasks were completed (Done vs Failed/Moved/Cancelled).
+5. **Reports** – View efficiency over a day, week, or month to track your productivity trends.
+
+---
+
+## 🧪 Testing
+
+- Run the CLI with a small number of tasks first to familiarise yourself with the workflow.
+- Use the Telegram bot in a private chat to test all features.
+
+---
+
+## 🔮 Future Improvements
+
+- Optional multi‑user support (add a `user_id` column and scope all queries by chat/user).
+- Notifications for upcoming tasks.
+- Export reports to CSV or Excel.
+
+---
+
+## 📄 License
+
+MIT – free to use, modify, and distribute.
+
+---
+
+## 🙏 Acknowledgements
+
+Developed as the final project for Harvard's CS50 course.  
+Special thanks to Professor David Malan and the CS50 staff.

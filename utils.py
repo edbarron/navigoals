@@ -3,6 +3,22 @@ from tabulate import tabulate
 
 # Utils module for handling common interactions
 
+# Status values are stored in the DB as plain lowercase strings so they stay
+# stable and queryable. Emoji are added only when displaying to the user.
+STATUS_EMOJI = {
+    "pending": "Pending ⏳",
+    "done": "Done ✅",
+    "failed": "Failed ❌",
+    "moved": "Moved 📦",
+    "cancelled": "Cancelled 🚫",
+}
+
+
+def status_label(status):
+    """Return the display label (with emoji) for a plain stored status value."""
+    return STATUS_EMOJI.get(status, status)
+
+
 def select_task(tasks, multi_select=False):
     """Allow user to select one or multiple tasks."""
     print("\nSelect a task:")
@@ -10,7 +26,7 @@ def select_task(tasks, multi_select=False):
         if len(task) == 3:  # Master List or Waiting List format
             print(f"{task[0]}: {task[1]} ({task[2]})")  # id, name, category
         elif len(task) == 4:  # Daily tasks format
-            print(f"{task[0]}: {task[1]} ({task[2]}) - {task[3]}")  # daily_id, name, category, status
+            print(f"{task[0]}: {task[1]} ({task[2]}) - {status_label(task[3])}")  # daily_id, name, category, status
 
     if multi_select:
         selection = input("Enter the task ID(s), comma-separated (or '*' for all): ").strip()
@@ -100,10 +116,10 @@ def select_time():
 
 def calculate_efficiency(tasks):
     """Calculate efficiency and task metrics."""
-    # Treat all "Pending" tasks as "Failed ❌" for efficiency calculation
-    efficiency_tasks = [task for task in tasks if task[3] in ["Done ✅", "pending", "Failed ❌"]]
-    completed_tasks = sum(1 for task in efficiency_tasks if task[3] == "Done ✅")
-    failed_tasks = sum(1 for task in efficiency_tasks if task[3] in ["pending", "Failed ❌"])
+    # Treat all "pending" tasks as "failed" for efficiency calculation
+    efficiency_tasks = [task for task in tasks if task[3] in ("done", "pending", "failed")]
+    completed_tasks = sum(1 for task in efficiency_tasks if task[3] == "done")
+    failed_tasks = sum(1 for task in efficiency_tasks if task[3] in ("pending", "failed"))
     moved_or_cancelled = len(tasks) - len(efficiency_tasks)
 
     # Efficiency is calculated based on "Done ✅" tasks only
@@ -114,9 +130,9 @@ def calculate_efficiency(tasks):
         emoji = "\033[97m⚪ Nothing yet\033[0m"
     elif efficiency < 50:
         emoji = "\033[91m🟥 Way below target...\033[0m"
-    elif 50 <= efficiency <= 80:
+    elif 50 <= efficiency <= 79:
         emoji = "\033[93m🟧 Halfway accomplished!\033[0m"
-    elif 81 <= efficiency <= 95:
+    elif 80 <= efficiency <= 95:
         emoji = "\033[92m🟩 Great job!  \033[0m"
     elif 96 <= efficiency <= 100:
         emoji = "\033[96m🌟 Mission accomplished! All goals complete 🌟\033[0m"
@@ -143,5 +159,6 @@ def format_report(metrics, tasks):
     print(f"Efficiency: {metrics['efficiency']:.2f}%")
 
     headers = ["Daily ID", "Name", "Category", "Status", "Date"]
+    display_tasks = [(t[0], t[1], t[2], status_label(t[3]), t[4]) for t in tasks]
     print("\nTask Details:")
-    print(tabulate(tasks, headers=headers, tablefmt="pretty"))
+    print(tabulate(display_tasks, headers=headers, tablefmt="pretty"))
