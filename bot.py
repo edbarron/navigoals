@@ -225,7 +225,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if tasks:
             if delta <= 0:
                 metrics = calculate_efficiency(tasks)
-                lines.append(f"Efficiency: {metrics['efficiency']:.0f}% {_strip_ansi(metrics['emoji'])}\n")
+                lines.append(f"Efficiency: {metrics['efficiency']:.0f}% {_strip_ansi(metrics['emoji'])}")
             else:
                 lines.append(f"Planned: {len(tasks)} task(s)")
             lines.append(_fmt_grouped_tasks(tasks))
@@ -529,15 +529,42 @@ async def delete_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ---- Copy task flow (multi-select, daily -> daily, matches CLI behavior) --
+# ---- Copy task flow (multi-select, any list -> a daily date, source untouched) --
 
 async def copy_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("Today", callback_data="copy:day:today")],
-        [InlineKeyboardButton("Yesterday", callback_data="copy:day:yesterday")],
+        [InlineKeyboardButton("📅 Daily Tasks", callback_data="copy:src:tasks")],
+        [InlineKeyboardButton("📚 Master List", callback_data="copy:src:master_list")],
+        [InlineKeyboardButton("⏳ Waiting List", callback_data="copy:src:waiting_list")],
         [InlineKeyboardButton("⬅️ Back", callback_data="manage")],
     ]
-    await _send_or_edit(update, "📋 *Copy Task(s)*\nCopy from which day?", keyboard)
+    await _send_or_edit(update, "📋 *Copy Task(s)*\nCopy from where?", keyboard)
+
+
+async def copy_src_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE, table: str):
+    context.user_data["copy_source_table"] = table
+
+    if table == "tasks":
+        keyboard = [
+            [InlineKeyboardButton("Today", callback_data="copy:day:today")],
+            [InlineKeyboardButton("Yesterday", callback_data="copy:day:yesterday")],
+            [InlineKeyboardButton("⬅️ Back", callback_data="manage")],
+        ]
+        await _send_or_edit(update, "Copy from which day?", keyboard)
+        return
+
+    tasks = get_master_list() if table == "master_list" else get_waiting_list()
+    if not tasks:
+        await _send_or_edit(
+            update, f"No tasks in the {TABLE_LABELS[table]}.", [[InlineKeyboardButton("⬅️ Back", callback_data="manage")]]
+        )
+        return
+
+    context.user_data["copy_source_date"] = None
+    context.user_data["awaiting"] = "copy_select_ids"
+    await _send_or_edit(
+        update, f"{TABLE_LABELS[table]}:\n\n{_selection_prompt(tasks, with_status=False)}"
+    )
 
 
 async def copy_day_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE, choice: str):
@@ -550,14 +577,23 @@ async def copy_day_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE, ch
         )
         return
 
+    context.user_data["copy_source_table"] = "tasks"
     context.user_data["copy_source_date"] = date_str
     context.user_data["awaiting"] = "copy_select_ids"
     await _send_or_edit(update, f"Tasks for {date_str}:\n\n{_selection_prompt(tasks)}")
 
 
 async def copy_ids_received(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+    table = context.user_data.get("copy_source_table")
     date_str = context.user_data.get("copy_source_date")
-    tasks = get_tasks_by_date(date_str)
+
+    if table == "tasks":
+        tasks = get_tasks_by_date(date_str)
+    elif table == "master_list":
+        tasks = get_master_list()
+    else:
+        tasks = get_waiting_list()
+
     valid_ids = [t[0] for t in tasks]
     selected_ids = _parse_selection(text, valid_ids)
     if not selected_ids:
@@ -566,7 +602,7 @@ async def copy_ids_received(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         )
         return
 
-    # Store (name, category) pairs — we don't need the source daily_id/status once copied.
+    # Store (name, category) pairs — we don't need the source id/status once copied.
     selected_pairs = [(t[1], t[2]) for t in tasks if t[0] in selected_ids]
     context.user_data["copy_tasks"] = selected_pairs
     context.user_data["awaiting"] = None
@@ -762,6 +798,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "copy:start":
         await copy_start(update, context)
+    elif head == "copy" and parts[1] == "src":
+        await copy_src_chosen(update, context, parts[2])
     elif head == "copy" and parts[1] == "day":
         await copy_day_chosen(update, context, parts[2])
     elif head == "copy" and parts[1] == "date":
