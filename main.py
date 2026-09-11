@@ -22,6 +22,24 @@ import datetime  # Module for working with dates
 from tabulate import tabulate  # For displaying tables
 import os
 
+
+# ============================================================
+# Helper: reindex tasks for display (1..N) without touching DB
+# ============================================================
+def with_display_index(tasks):
+    """
+    Convert a list of (real_id, name, category, ...) into:
+      - display_rows: [(display_id, name, category), ...] with display_id = 1..N
+      - id_map:       {display_id: real_id}
+    """
+    id_map = {}
+    display_rows = []
+    for i, t in enumerate(tasks, start=1):
+        id_map[i] = t[0]
+        display_rows.append((i, t[1], t[2]))
+    return display_rows, id_map
+
+
 def main_menu():
     """Main menu of the program."""
     while True:
@@ -249,15 +267,19 @@ def delete_task_menu():
             print("No tasks available in the Master List.")
             return
 
-        tasks_to_delete = select_task(master_tasks, multi_select=True)
-        if not tasks_to_delete:
+        # Reindex for display: user sees 1..N
+        display_tasks = [(i, t[1], t[2]) for i, t in enumerate(master_tasks, start=1)]
+        selected_display = select_task(display_tasks, multi_select=True)
+        if not selected_display:
             print("Delete canceled.")
             return
+        # Translate display selections back to real tasks
+        tasks_to_delete = [master_tasks[t[0] - 1] for t in selected_display]
 
         ask_bulk = False
 
         for i, task in enumerate(tasks_to_delete):
-            task_id = task[0]
+            task_id = task[0]  # real ID
 
             if ask_bulk:
                 delete_task(task_id, table="master_list")
@@ -283,15 +305,19 @@ def delete_task_menu():
             print("No tasks available in the Waiting List.")
             return
 
-        tasks_to_delete = select_task(waiting_tasks, multi_select=True)
-        if not tasks_to_delete:
+        # Reindex for display: user sees 1..N
+        display_tasks = [(i, t[1], t[2]) for i, t in enumerate(waiting_tasks, start=1)]
+        selected_display = select_task(display_tasks, multi_select=True)
+        if not selected_display:
             print("Delete canceled.")
             return
+        # Translate display selections back to real tasks
+        tasks_to_delete = [waiting_tasks[t[0] - 1] for t in selected_display]
 
         ask_bulk = False
 
         for i, task in enumerate(tasks_to_delete):
-            task_id = task[0]
+            task_id = task[0]  # real ID
 
             if ask_bulk:
                 delete_task(task_id, table="waiting_list")
@@ -381,8 +407,10 @@ def watch_list_menu():
             print("\n📚 Viewing the Master List...")
             master_tasks = get_master_list()
             if master_tasks:
+                # Reindex for display: 1..N
+                display_rows, _ = with_display_index(master_tasks)
                 headers = ["ID", "Name", "Category"]
-                print(tabulate(master_tasks, headers=headers, tablefmt="pretty"))
+                print(tabulate(display_rows, headers=headers, tablefmt="pretty"))
             else:
                 print("No tasks in the Master List.")
 
@@ -390,8 +418,10 @@ def watch_list_menu():
             print("\n⏳ Viewing the Waiting List...")
             waiting_tasks = get_waiting_list()
             if waiting_tasks:
+                # Reindex for display: 1..N
+                display_rows, _ = with_display_index(waiting_tasks)
                 headers = ["ID", "Name", "Category"]
-                print(tabulate(waiting_tasks, headers=headers, tablefmt="pretty"))
+                print(tabulate(display_rows, headers=headers, tablefmt="pretty"))
             else:
                 print("No tasks in the Waiting List.")
 
@@ -418,20 +448,23 @@ def watch_list_menu():
                 print(f"No tasks available in the {source_label} List.")
                 continue
 
-            # Show tasks
+            # Show tasks with reindexed display IDs (1..N)
+            display_rows, id_map = with_display_index(tasks)
             print(f"\n{source_label} tasks:")
             headers = ["ID", "Name", "Category"]
-            print(tabulate(tasks, headers=headers, tablefmt="pretty"))
+            print(tabulate(display_rows, headers=headers, tablefmt="pretty"))
 
             print("\nSelect tasks to copy by entering their IDs (comma-separated). Use '*' to select all.")
             task_selection = input("Enter the task ID(s) or '*': ").strip()
 
             if task_selection == "*":
                 selected_tasks = tasks
-                selected_ids = [t[0] for t in tasks]
+                selected_ids = [t[0] for t in tasks]  # real IDs
             else:
                 try:
-                    selected_ids = [int(x) for x in task_selection.split(",") if x.strip().isdigit()]
+                    display_ids = [int(x) for x in task_selection.split(",") if x.strip().isdigit()]
+                    # Translate display_id -> real_id
+                    selected_ids = [id_map[d] for d in display_ids if d in id_map]
                     selected_tasks = [t for t in tasks if t[0] in selected_ids]
                 except ValueError:
                     print("❌ Invalid input. Please try again.")
