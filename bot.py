@@ -181,6 +181,24 @@ def _parse_selection(text, valid_ids):
     return selected if selected else None
 
 
+def _with_display_index(tasks):
+    """Reindex master/waiting tasks so the user sees 1..N, not raw DB ids.
+
+    Returns (display_tasks, id_map) where:
+      - display_tasks is a list of (display_id, name, category) with display_id = 1..N
+      - id_map maps display_id -> real DB id
+
+    This keeps the DB untouched: real ids may be 35550, 35551, ... but the
+    user only ever sees 1, 2, 3 ... and we translate back before hitting the DB.
+    """
+    id_map = {}
+    display = []
+    for i, t in enumerate(tasks, start=1):
+        id_map[i] = t[0]
+        display.append((i, t[1], t[2]))
+    return display, id_map
+
+
 async def _send_or_edit(update: Update, text: str, keyboard=None):
     """Reply with a new message if triggered by text, or edit if from a button tap.
     Always degrades gracefully: if Markdown parsing fails for any reason, falls
@@ -452,15 +470,21 @@ async def delete_src_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     tasks = get_master_list() if table == "master_list" else get_waiting_list()
     if not tasks:
         await _send_or_edit(
-            update, f"No tasks in the {TABLE_LABELS[table]}.", [[InlineKeyboardButton("⬅️ Back", callback_data="manage")]]
+            update,
+            f"No tasks in the {TABLE_LABELS[table]}.",
+            [[InlineKeyboardButton("⬅️ Back", callback_data="manage")]],
         )
         return
 
+    # Reindex for display: user sees 1..N, we translate back on confirmation.
+    display, id_map = _with_display_index(tasks)
     context.user_data["delete_table"] = table
     context.user_data["delete_date"] = None
+    context.user_data["delete_id_map"] = id_map      # display_id -> real id
     context.user_data["awaiting"] = "delete_select_ids"
     await _send_or_edit(
-        update, f"{TABLE_LABELS[table]}:\n\n{_selection_prompt(tasks, with_status=False)}"
+        update,
+        f"{TABLE_LABELS[table]}:\n\n{_selection_prompt(display, with_status=False)}",
     )
 
 
@@ -476,6 +500,7 @@ async def delete_day_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     context.user_data["delete_table"] = "tasks"
     context.user_data["delete_date"] = date_str
+    context.user_data["delete_id_map"] = None        # daily tasks: no reindexing
     context.user_data["awaiting"] = "delete_select_ids"
     await _send_or_edit(update, f"Tasks for {date_str}:\n\n{_selection_prompt(tasks)}")
 
@@ -483,15 +508,14 @@ async def delete_day_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 async def delete_ids_received(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
     table = context.user_data.get("delete_table")
     date_str = context.user_data.get("delete_date")
+    id_map = context.user_data.get("delete_id_map")  # None for daily tasks
 
     if table == "tasks":
         tasks = get_tasks_by_date(date_str)
-    elif table == "master_list":
-        tasks = get_master_list()
+        valid_ids = [t[0] for t in tasks]
     else:
-        tasks = get_waiting_list()
+        valid_ids = list(id_map.keys()) if id_map else []
 
-    valid_ids = [t[0] for t in tasks]
     selected = _parse_selection(text, valid_ids)
     if not selected:
         await update.message.reply_text(
@@ -499,7 +523,10 @@ async def delete_ids_received(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
-    context.user_data["delete_ids"] = selected
+    # Translate display ids -> real DB ids (only needed for master/waiting)
+    real_ids = [id_map[d] for d in selected] if id_map else selected
+
+    context.user_data["delete_ids"] = real_ids
     context.user_data["awaiting"] = None
     keyboard = [
         [
@@ -508,7 +535,7 @@ async def delete_ids_received(update: Update, context: ContextTypes.DEFAULT_TYPE
         ]
     ]
     await update.message.reply_text(
-        f"Delete {len(selected)} task(s) from {TABLE_LABELS[table]}? This can't be undone.",
+        f"Delete {len(real_ids)} task(s) from {TABLE_LABELS[table]}? This can't be undone.",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -556,14 +583,20 @@ async def copy_src_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE, ta
     tasks = get_master_list() if table == "master_list" else get_waiting_list()
     if not tasks:
         await _send_or_edit(
-            update, f"No tasks in the {TABLE_LABELS[table]}.", [[InlineKeyboardButton("⬅️ Back", callback_data="manage")]]
+            update,
+            f"No tasks in the {TABLE_LABELS[table]}.",
+            [[InlineKeyboardButton("⬅️ Back", callback_data="manage")]],
         )
         return
 
+    # Reindex for display: user sees 1..N, we translate back when reading selection.
+    display, id_map = _with_display_index(tasks)
     context.user_data["copy_source_date"] = None
+    context.user_data["copy_id_map"] = id_map
     context.user_data["awaiting"] = "copy_select_ids"
     await _send_or_edit(
-        update, f"{TABLE_LABELS[table]}:\n\n{_selection_prompt(tasks, with_status=False)}"
+        update,
+        f"{TABLE_LABELS[table]}:\n\n{_selection_prompt(display, with_status=False)}",
     )
 
 
@@ -579,6 +612,7 @@ async def copy_day_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE, ch
 
     context.user_data["copy_source_table"] = "tasks"
     context.user_data["copy_source_date"] = date_str
+    context.user_data["copy_id_map"] = None
     context.user_data["awaiting"] = "copy_select_ids"
     await _send_or_edit(update, f"Tasks for {date_str}:\n\n{_selection_prompt(tasks)}")
 
@@ -586,24 +620,27 @@ async def copy_day_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE, ch
 async def copy_ids_received(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
     table = context.user_data.get("copy_source_table")
     date_str = context.user_data.get("copy_source_date")
+    id_map = context.user_data.get("copy_id_map")    # None for daily tasks
 
     if table == "tasks":
         tasks = get_tasks_by_date(date_str)
-    elif table == "master_list":
-        tasks = get_master_list()
+        valid_ids = [t[0] for t in tasks]
     else:
-        tasks = get_waiting_list()
+        tasks = get_master_list() if table == "master_list" else get_waiting_list()
+        valid_ids = list(id_map.keys()) if id_map else []
 
-    valid_ids = [t[0] for t in tasks]
-    selected_ids = _parse_selection(text, valid_ids)
-    if not selected_ids:
+    selected = _parse_selection(text, valid_ids)
+    if not selected:
         await update.message.reply_text(
             "❌ No valid IDs found in that input. Try again (e.g. `1,3` or `*`)."
         )
         return
 
-    # Store (name, category) pairs — we don't need the source id/status once copied.
-    selected_pairs = [(t[1], t[2]) for t in tasks if t[0] in selected_ids]
+    # Translate display ids -> real DB ids
+    real_ids = [id_map[d] for d in selected] if id_map else selected
+
+    # Store (name, category) pairs — the source id/status isn't needed once copied.
+    selected_pairs = [(t[1], t[2]) for t in tasks if t[0] in real_ids]
     context.user_data["copy_tasks"] = selected_pairs
     context.user_data["awaiting"] = None
 
@@ -733,18 +770,28 @@ async def watch_day(update: Update, context: ContextTypes.DEFAULT_TYPE, choice: 
 
 async def watch_master(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tasks = get_master_list()
+    if tasks:
+        display, _ = _with_display_index(tasks)
+        body = _fmt_task_rows(display, with_status=False)
+    else:
+        body = "_No tasks._"
     await _send_or_edit(
         update,
-        f"📚 Master List:\n\n{_fmt_task_rows(tasks, with_status=False)}",
+        f"📚 Master List:\n\n{body}",
         [[InlineKeyboardButton("⬅️ Back", callback_data="watch")]],
     )
 
 
 async def watch_waiting(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tasks = get_waiting_list()
+    if tasks:
+        display, _ = _with_display_index(tasks)
+        body = _fmt_task_rows(display, with_status=False)
+    else:
+        body = "_No tasks._"
     await _send_or_edit(
         update,
-        f"⏳ Waiting List:\n\n{_fmt_task_rows(tasks, with_status=False)}",
+        f"⏳ Waiting List:\n\n{body}",
         [[InlineKeyboardButton("⬅️ Back", callback_data="watch")]],
     )
 
