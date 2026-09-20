@@ -30,6 +30,7 @@ from db_utils import (
     add_task,
     delete_daily_task,
     delete_task,
+    fail_past_pending_tasks,
     get_master_list,
     get_tasks_by_date,
     get_tasks_by_range,
@@ -46,6 +47,12 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 _raw_chat_id = os.environ.get("TELEGRAM_CHAT_ID")
 AUTHORIZED_CHAT_ID = int(_raw_chat_id) if _raw_chat_id else None
+
+# Fixed UTC offset for "what day is it" and the midnight auto-fail job.
+# Independent of the server/container's system clock — set via env var if
+# you're ever somewhere other than GMT-7.
+_UTC_OFFSET_HOURS = int(os.environ.get("UTC_OFFSET_HOURS", "-7"))
+BOT_TZ = datetime.timezone(datetime.timedelta(hours=_UTC_OFFSET_HOURS))
 
 CATEGORIES = {
     "work": "Work 💼",
@@ -69,7 +76,7 @@ STATUS_ICON = {
     "cancelled": "🚫",
 }
 
-DAY_DIVIDER = "━━━━━━━━━━━━━━━━━━━"
+DAY_DIVIDER = "███████████████████████████████"
 
 TABLE_LABELS = {
     "tasks": "Daily Tasks",
@@ -99,7 +106,7 @@ async def _authorized(update: Update) -> bool:
 # --------------------------------------------------------------------------
 
 def _today():
-    return datetime.date.today()
+    return datetime.datetime.now(BOT_TZ).date()
 
 
 def _strip_ansi(text: str) -> str:
@@ -141,9 +148,9 @@ CATEGORY_ORDER = list(CATEGORIES.values())  # Work, Study, Social, Personal
 
 
 def _fmt_grouped_tasks(tasks):
-    """Main-menu-only display: tasks grouped under category headers, no IDs
-    (nothing is selected from here), no code block — meant to read as a
-    clean list rather than a table."""
+    """Main-menu-only display: one line per category, tasks separated by a
+    middle dot, so the message uses horizontal space instead of stretching
+    into a long vertical list."""
     if not tasks:
         return "No goals 📥"
 
@@ -153,23 +160,24 @@ def _fmt_grouped_tasks(tasks):
 
     ordered_cats = list(CATEGORY_ORDER) + [c for c in groups if c not in CATEGORY_ORDER]
 
-    blocks = []
+    lines = []
     for cat in ordered_cats:
         items = groups.get(cat)
         if not items:
             continue
-        rows = "\n".join(
+        task_bits = " · ".join(
             f"{STATUS_ICON.get(t[3], '•')} {_code_safe(t[1])}" for t in items
         )
-        blocks.append(f"*{cat}*\n{rows}")
+        lines.append(f"*{cat}:* {task_bits}")
 
-    return "\n\n".join(blocks)
+    return "\n".join(lines)
 
 
 def _parse_selection(text, valid_ids):
     """Parse '1,3,5' or '*' into a list of ids present in valid_ids.
     Returns None if the input is invalid or matches nothing."""
     text = text.strip()
+    valid_ids = list(valid_ids)
     valid_set = set(valid_ids)
     if text == "*":
         return list(valid_ids)
@@ -181,22 +189,28 @@ def _parse_selection(text, valid_ids):
     return selected if selected else None
 
 
-def _with_display_index(tasks):
-    """Reindex master/waiting tasks so the user sees 1..N, not raw DB ids.
+def _fmt_positional_rows(tasks):
+    """Master/Waiting list display: 1..N position numbers instead of the raw
+    database id. Those tables have no per-day reset like daily_id, so their
+    real id only ever grows (e.g. 32051) and is unusable to type by hand."""
+    if not tasks:
+        return "_No tasks._"
+    return "\n".join(f"{i}. {_code_safe(t[1])} — {t[2]}" for i, t in enumerate(tasks, start=1))
 
-    Returns (display_tasks, id_map) where:
-      - display_tasks is a list of (display_id, name, category) with display_id = 1..N
-      - id_map maps display_id -> real DB id
 
-    This keeps the DB untouched: real ids may be 35550, 35551, ... but the
-    user only ever sees 1, 2, 3 ... and we translate back before hitting the DB.
-    """
-    id_map = {}
-    display = []
-    for i, t in enumerate(tasks, start=1):
-        id_map[i] = t[0]
-        display.append((i, t[1], t[2]))
-    return display, id_map
+def _resolve_selection(text, tasks, positional):
+    """Parse the user's '1,3' / '*' input against `tasks`.
+    positional=True: the typed numbers are 1-based list positions (Master/
+    Waiting lists) — resolved back to the real database id here.
+    positional=False: the typed numbers already are the real id (daily
+    tasks, whose daily_id resets each day and stays small on its own).
+    Returns a list of real database ids to act on, or None if invalid."""
+    if positional:
+        chosen = _parse_selection(text, range(1, len(tasks) + 1))
+        if not chosen:
+            return None
+        return [tasks[p - 1][0] for p in chosen]
+    return _parse_selection(text, [t[0] for t in tasks])
 
 
 async def _send_or_edit(update: Update, text: str, keyboard=None):
@@ -233,7 +247,10 @@ async def _send_or_edit(update: Update, text: str, keyboard=None):
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
 
-    lines = ["🌟 *Navigoals* 🌟\n"]
+    lines = ["━━━━━━━━━━━━━━━━━━━━━━",
+            "🌟 *━━━━ NAVIGOALS ━━━━* 🌟",
+            "━━━━━━━━━━━━━━━━━━━━━━\n"]
+
     days = [(-1, "Yesterday"), (0, "Today"), (1, "Tomorrow")]
     for i, (delta, label) in enumerate(days):
         day = _today() + datetime.timedelta(days=delta)
@@ -243,9 +260,9 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if tasks:
             if delta <= 0:
                 metrics = calculate_efficiency(tasks)
-                lines.append(f"Efficiency: {metrics['efficiency']:.0f}% {_strip_ansi(metrics['emoji'])}")
+                lines.append(f"Efficiency: {metrics['efficiency']:.0f}% {_strip_ansi(metrics['emoji'])}\n")
             else:
-                lines.append(f"Planned: {len(tasks)} task(s)")
+                lines.append(f"Planned: {len(tasks)} task(s)\n")
             lines.append(_fmt_grouped_tasks(tasks))
         else:
             lines.append("No goals 📥")
@@ -258,8 +275,15 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📝 Manage Tasks", callback_data="manage")],
         [InlineKeyboardButton("📊 View Reports", callback_data="reports")],
         [InlineKeyboardButton("👁️ Watch Lists", callback_data="watch")],
+        [InlineKeyboardButton("🚪 Exit", callback_data="exit")],
     ]
     await _send_or_edit(update, "\n".join(lines), keyboard)
+
+
+async def show_exit_screen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    keyboard = [[InlineKeyboardButton("🌟 Open Navigoals", callback_data="main")]]
+    await _send_or_edit(update, "👋 See you later.", keyboard)
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -292,11 +316,10 @@ async def show_manage_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_or_edit(update, "📝 *Task Management*", keyboard)
 
 
-def _selection_prompt(tasks, with_status=True):
-    return (
-        f"{_fmt_task_rows(tasks, with_status=with_status)}\n\n"
-        "Send the IDs you want, comma-separated (e.g. `1,3`), or `*` for all."
-    )
+def _selection_prompt(tasks, with_status=True, positional=False):
+    body = _fmt_positional_rows(tasks) if positional else _fmt_task_rows(tasks, with_status=with_status)
+    label = "numbers" if positional else "IDs"
+    return f"{body}\n\nSend the {label} you want, comma-separated (e.g. `1,3`), or `*` for all."
 
 
 # ---- Add task flow --------------------------------------------------------
@@ -470,21 +493,15 @@ async def delete_src_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     tasks = get_master_list() if table == "master_list" else get_waiting_list()
     if not tasks:
         await _send_or_edit(
-            update,
-            f"No tasks in the {TABLE_LABELS[table]}.",
-            [[InlineKeyboardButton("⬅️ Back", callback_data="manage")]],
+            update, f"No tasks in the {TABLE_LABELS[table]}.", [[InlineKeyboardButton("⬅️ Back", callback_data="manage")]]
         )
         return
 
-    # Reindex for display: user sees 1..N, we translate back on confirmation.
-    display, id_map = _with_display_index(tasks)
     context.user_data["delete_table"] = table
     context.user_data["delete_date"] = None
-    context.user_data["delete_id_map"] = id_map      # display_id -> real id
     context.user_data["awaiting"] = "delete_select_ids"
     await _send_or_edit(
-        update,
-        f"{TABLE_LABELS[table]}:\n\n{_selection_prompt(display, with_status=False)}",
+        update, f"{TABLE_LABELS[table]}:\n\n{_selection_prompt(tasks, positional=True)}"
     )
 
 
@@ -500,7 +517,6 @@ async def delete_day_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     context.user_data["delete_table"] = "tasks"
     context.user_data["delete_date"] = date_str
-    context.user_data["delete_id_map"] = None        # daily tasks: no reindexing
     context.user_data["awaiting"] = "delete_select_ids"
     await _send_or_edit(update, f"Tasks for {date_str}:\n\n{_selection_prompt(tasks)}")
 
@@ -508,25 +524,24 @@ async def delete_day_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 async def delete_ids_received(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
     table = context.user_data.get("delete_table")
     date_str = context.user_data.get("delete_date")
-    id_map = context.user_data.get("delete_id_map")  # None for daily tasks
 
     if table == "tasks":
         tasks = get_tasks_by_date(date_str)
-        valid_ids = [t[0] for t in tasks]
+    elif table == "master_list":
+        tasks = get_master_list()
     else:
-        valid_ids = list(id_map.keys()) if id_map else []
+        tasks = get_waiting_list()
 
-    selected = _parse_selection(text, valid_ids)
+    positional = table != "tasks"
+    selected = _resolve_selection(text, tasks, positional)
     if not selected:
+        label = "numbers" if positional else "IDs"
         await update.message.reply_text(
-            "❌ No valid IDs found in that input. Try again (e.g. `1,3` or `*`)."
+            f"❌ No valid {label} found in that input. Try again (e.g. `1,3` or `*`)."
         )
         return
 
-    # Translate display ids -> real DB ids (only needed for master/waiting)
-    real_ids = [id_map[d] for d in selected] if id_map else selected
-
-    context.user_data["delete_ids"] = real_ids
+    context.user_data["delete_ids"] = selected
     context.user_data["awaiting"] = None
     keyboard = [
         [
@@ -535,7 +550,7 @@ async def delete_ids_received(update: Update, context: ContextTypes.DEFAULT_TYPE
         ]
     ]
     await update.message.reply_text(
-        f"Delete {len(real_ids)} task(s) from {TABLE_LABELS[table]}? This can't be undone.",
+        f"Delete {len(selected)} task(s) from {TABLE_LABELS[table]}? This can't be undone.",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -583,20 +598,14 @@ async def copy_src_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE, ta
     tasks = get_master_list() if table == "master_list" else get_waiting_list()
     if not tasks:
         await _send_or_edit(
-            update,
-            f"No tasks in the {TABLE_LABELS[table]}.",
-            [[InlineKeyboardButton("⬅️ Back", callback_data="manage")]],
+            update, f"No tasks in the {TABLE_LABELS[table]}.", [[InlineKeyboardButton("⬅️ Back", callback_data="manage")]]
         )
         return
 
-    # Reindex for display: user sees 1..N, we translate back when reading selection.
-    display, id_map = _with_display_index(tasks)
     context.user_data["copy_source_date"] = None
-    context.user_data["copy_id_map"] = id_map
     context.user_data["awaiting"] = "copy_select_ids"
     await _send_or_edit(
-        update,
-        f"{TABLE_LABELS[table]}:\n\n{_selection_prompt(display, with_status=False)}",
+        update, f"{TABLE_LABELS[table]}:\n\n{_selection_prompt(tasks, positional=True)}"
     )
 
 
@@ -612,7 +621,6 @@ async def copy_day_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE, ch
 
     context.user_data["copy_source_table"] = "tasks"
     context.user_data["copy_source_date"] = date_str
-    context.user_data["copy_id_map"] = None
     context.user_data["awaiting"] = "copy_select_ids"
     await _send_or_edit(update, f"Tasks for {date_str}:\n\n{_selection_prompt(tasks)}")
 
@@ -620,27 +628,25 @@ async def copy_day_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE, ch
 async def copy_ids_received(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
     table = context.user_data.get("copy_source_table")
     date_str = context.user_data.get("copy_source_date")
-    id_map = context.user_data.get("copy_id_map")    # None for daily tasks
 
     if table == "tasks":
         tasks = get_tasks_by_date(date_str)
-        valid_ids = [t[0] for t in tasks]
+    elif table == "master_list":
+        tasks = get_master_list()
     else:
-        tasks = get_master_list() if table == "master_list" else get_waiting_list()
-        valid_ids = list(id_map.keys()) if id_map else []
+        tasks = get_waiting_list()
 
-    selected = _parse_selection(text, valid_ids)
-    if not selected:
+    positional = table != "tasks"
+    selected_ids = _resolve_selection(text, tasks, positional)
+    if not selected_ids:
+        label = "numbers" if positional else "IDs"
         await update.message.reply_text(
-            "❌ No valid IDs found in that input. Try again (e.g. `1,3` or `*`)."
+            f"❌ No valid {label} found in that input. Try again (e.g. `1,3` or `*`)."
         )
         return
 
-    # Translate display ids -> real DB ids
-    real_ids = [id_map[d] for d in selected] if id_map else selected
-
-    # Store (name, category) pairs — the source id/status isn't needed once copied.
-    selected_pairs = [(t[1], t[2]) for t in tasks if t[0] in real_ids]
+    # Store (name, category) pairs — we don't need the source id/status once copied.
+    selected_pairs = [(t[1], t[2]) for t in tasks if t[0] in selected_ids]
     context.user_data["copy_tasks"] = selected_pairs
     context.user_data["awaiting"] = None
 
@@ -761,38 +767,72 @@ async def watch_day(update: Update, context: ContextTypes.DEFAULT_TYPE, choice: 
     offset = {"today": 0, "tomorrow": 1, "yesterday": -1}[choice]
     date_str = (_today() + datetime.timedelta(days=offset)).isoformat()
     tasks = get_tasks_by_date(date_str)
+    keyboard = []
+    if tasks:
+        keyboard.append(
+            [InlineKeyboardButton("📋 Copy from this list", callback_data=f"watch:copy:tasks:{date_str}")]
+        )
+    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="watch")])
     await _send_or_edit(
-        update,
-        f"Tasks for {date_str}:\n\n{_fmt_task_rows(tasks)}",
-        [[InlineKeyboardButton("⬅️ Back", callback_data="watch")]],
+        update, f"Tasks for {date_str}:\n\n{_fmt_task_rows(tasks)}", keyboard
     )
 
 
 async def watch_master(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tasks = get_master_list()
+    keyboard = []
     if tasks:
-        display, _ = _with_display_index(tasks)
-        body = _fmt_task_rows(display, with_status=False)
-    else:
-        body = "_No tasks._"
+        keyboard.append(
+            [InlineKeyboardButton("📋 Copy from this list", callback_data="watch:copy:master_list:none")]
+        )
+    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="watch")])
     await _send_or_edit(
-        update,
-        f"📚 Master List:\n\n{body}",
-        [[InlineKeyboardButton("⬅️ Back", callback_data="watch")]],
+        update, f"📚 Master List:\n\n{_fmt_positional_rows(tasks)}", keyboard
     )
 
 
 async def watch_waiting(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tasks = get_waiting_list()
+    keyboard = []
     if tasks:
-        display, _ = _with_display_index(tasks)
-        body = _fmt_task_rows(display, with_status=False)
-    else:
-        body = "_No tasks._"
+        keyboard.append(
+            [InlineKeyboardButton("📋 Copy from this list", callback_data="watch:copy:waiting_list:none")]
+        )
+    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="watch")])
     await _send_or_edit(
-        update,
-        f"⏳ Waiting List:\n\n{body}",
-        [[InlineKeyboardButton("⬅️ Back", callback_data="watch")]],
+        update, f"⏳ Waiting List:\n\n{_fmt_positional_rows(tasks)}", keyboard
+    )
+
+
+async def watch_copy_start(update: Update, context: ContextTypes.DEFAULT_TYPE, table: str, date_str: str):
+    """Jump straight into the copy selection step from a Watch List view,
+    reusing the same multi-select ('1,3' or '*') handling as Manage Tasks."""
+    if table == "tasks":
+        tasks = get_tasks_by_date(date_str)
+        header = f"Tasks for {date_str}"
+        positional = False
+    elif table == "master_list":
+        tasks = get_master_list()
+        date_str = None
+        header = TABLE_LABELS[table]
+        positional = True
+    else:
+        tasks = get_waiting_list()
+        date_str = None
+        header = TABLE_LABELS[table]
+        positional = True
+
+    if not tasks:
+        await _send_or_edit(
+            update, "Nothing to copy here.", [[InlineKeyboardButton("⬅️ Back", callback_data="watch")]]
+        )
+        return
+
+    context.user_data["copy_source_table"] = table
+    context.user_data["copy_source_date"] = date_str
+    context.user_data["awaiting"] = "copy_select_ids"
+    await _send_or_edit(
+        update, f"📋 Copy from {header}:\n\n{_selection_prompt(tasks, positional=positional)}"
     )
 
 
@@ -811,6 +851,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "main":
         await show_main_menu(update, context)
+    elif data == "exit":
+        await show_exit_screen(update, context)
     elif data == "manage":
         await show_manage_menu(update, context)
     elif data == "reports":
@@ -859,6 +901,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "reports:monthly":
         await reports_monthly(update, context)
 
+    elif head == "watch" and parts[1] == "copy":
+        await watch_copy_start(update, context, parts[2], parts[3])
     elif head == "watch" and parts[1] == "day":
         await watch_day(update, context, parts[2])
     elif data == "watch:master":
@@ -896,6 +940,23 @@ async def on_error(update, context):
 
 
 # --------------------------------------------------------------------------
+# Scheduled job: retire stale "pending" tasks
+# --------------------------------------------------------------------------
+
+async def auto_fail_past_tasks(context: ContextTypes.DEFAULT_TYPE):
+    """Mark any still-'pending' task from a previous day as 'failed'.
+
+    Runs at midnight local time, and once at startup so days missed while the
+    bot was down still get cleaned up. Only touches dates strictly before
+    today, so the current day is never affected mid-use. The user can always
+    set a task back to another status manually.
+    """
+    changed = fail_past_pending_tasks(_today().isoformat())
+    if changed:
+        logger.info("Auto-failed %s stale pending task(s) from previous days.", changed)
+
+
+# --------------------------------------------------------------------------
 # Entry point
 # --------------------------------------------------------------------------
 
@@ -911,6 +972,18 @@ def main():
     app.add_handler(CallbackQueryHandler(on_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_error_handler(on_error)
+
+    if app.job_queue is not None:
+        # Nightly cleanup, plus one run shortly after startup to catch up on
+        # any days that passed while the bot was down.
+        app.job_queue.run_daily(auto_fail_past_tasks, time=datetime.time(hour=0, minute=1, tzinfo=BOT_TZ))
+        app.job_queue.run_once(auto_fail_past_tasks, when=5)
+        logger.info("Scheduled nightly auto-fail of stale pending tasks.")
+    else:
+        logger.warning(
+            "JobQueue unavailable — stale pending tasks won't be auto-failed. "
+            'Install with: pip install "python-telegram-bot[job-queue]"'
+        )
 
     logger.info("Navigoals bot starting (polling mode)...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)

@@ -94,6 +94,21 @@ def get_waiting_list(db_name=DB_PATH):
     query = "SELECT id, name, category FROM waiting_list"
     return execute_query(query, (), db_name)
 
+def fail_past_pending_tasks(before_date, db_name=DB_PATH):
+    """Mark every still-'pending' task dated before `before_date` as 'failed'.
+    Returns the number of rows changed (0 if nothing was stale)."""
+    query = "UPDATE tasks SET status = 'failed' WHERE status = 'pending' AND date < ?"
+    try:
+        with connect_to_db(db_name) as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (before_date,))
+            conn.commit()
+            return cursor.rowcount
+    except sqlite3.Error as e:
+        print(f"An error occurred: {e}")
+        return 0
+
+
 def get_tasks_by_range(start_date, end_date, db_name=DB_PATH):
     """Fetch tasks within a specific date range."""
     query = """
